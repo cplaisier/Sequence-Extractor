@@ -249,7 +249,7 @@ for org in orgDict:
         a1 = len3pUTR(get3pUTR(refseqCoords[refseq],0))
         if not a1==0:
             p3utrLens.append(a1)
-    min3pUTR = numpy.median(p3utrLens)
+    min3pUTR = int(numpy.median(p3utrLens))
     print '  Median 3\' UTR length =',min3pUTR
 
     # 2. Make a dictionary of EntrezIDs to RefSeqIds
