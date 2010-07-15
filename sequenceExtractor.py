@@ -200,9 +200,9 @@ if not os.path.exists('gene2refseq.gz'):
     outFile.close()
     ftp1.quit()
 
-# Start cycling through species
-#orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'}, 'Danio_rerio': {'orgId':7955, 'seqFile':'danRer6.fa.masked.gz'} }
+# Start cycling through species need to have the orgId which can be had from NCBI taxonomy website, and the name of the sequence file from UCSC FTP site
 orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus_gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'} }
+#orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'}, 'Danio_rerio': {'orgId':7955, 'seqFile':'danRer6.fa.masked.gz'} } # This may be useful when I figure out how to get the sequence from zebrafish and cow
 #orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'} }
 for org in orgDict:
     print 'Starting on '+str(org)+'...'
