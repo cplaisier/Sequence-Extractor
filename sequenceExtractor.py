@@ -1,6 +1,6 @@
 #################################################################
 # @Program: sequenceExtractor.py                                #
-# @Version: 1                                                   #
+# @Version: 2                                                   #
 # @Author: Chris Plaisier                                       #
 # @Sponsored by:                                                #
 # Nitin Baliga, ISB                                             #
@@ -74,13 +74,66 @@ def get3pUTR(geneCoords,min3pUTR):
                 tmpUTR.insert(part,[tmpPart[0],introns[intron][0]])
                 # Now break from the loop back to the exon level loop to goto next exon
                 break
-    if len3pUTR(tmpUTR)<min3pUTR:
-        diff = min3pUTR - len3pUTR(tmpUTR)
+    if lenICS(tmpUTR)<min3pUTR:
+        diff = min3pUTR - lenICS(tmpUTR)
         if geneCoords['strand']=='+':
             tmpUTR[len(tmpUTR)-1][1] += diff
         elif geneCoords['strand']=='-':
             tmpUTR[0][0] = tmpUTR[0][0] - diff
     return tmpUTR
+
+# Function to retreive boundaries for 5pUTR
+def get5pUTR(geneCoords,min5pUTR):
+    tmpUTR = []
+    # Set boundaries
+    if geneCoords['strand']=='+':
+        start = geneCoords['txStart']
+        end = geneCoords['cdsStart']
+        tmpUTR = [[start,end]]
+    elif geneCoords['strand']=='-':
+        start = geneCoords['txEnd']
+        end = geneCoords['cdsEnd']
+        tmpUTR = [[start,end]]
+    # Screen to see if introns exist in this region
+    introns = exon2intron(geneCoords)
+    for intron in range(len(introns)):
+        for part in range(len(tmpUTR)):
+            # If the exon lies in the 5' UTR region then take it out
+            if tmpUTR[part][0] < introns[intron][0] < introns[intron][1] < tmpUTR[part][1]:
+                tmpPart = tmpUTR.pop(part)
+                # Insert in reverse order to preserve order of array
+                tmpUTR.insert(part,[introns[intron][1],tmpPart[1]])
+                tmpUTR.insert(part,[tmpPart[0],introns[intron][0]])
+                # Now break from the loop back to the exon level loop to goto next exon
+                break
+    if lenICS(tmpUTR)<min5pUTR:
+        diff = min5pUTR - lenICS(tmpUTR)
+        if geneCoords['strand']=='+':
+            tmpUTR[len(tmpUTR)-1][1] += diff
+        elif geneCoords['strand']=='-':
+            tmpUTR[0][0] = tmpUTR[0][0] - diff
+    return tmpUTR
+
+# Function to retreive boundaries for CDS
+def getCDS(geneCoords):
+    tmpCDS = []
+    # Set boundaries
+    start = geneCoords['cdsStart']
+    end = geneCoords['cdsEnd']
+    tmpCDS = [[start,end]]
+    # Screen to see if introns exist in this region
+    introns = exon2intron(geneCoords)
+    for intron in range(len(introns)):
+        for part in range(len(tmpCDS)):
+            # If the exon lies in the 3' UTR region then take it out
+            if tmpCDS[part][0] < introns[intron][0] < introns[intron][1] < tmpCDS[part][1]:
+                tmpPart = tmpCDS.pop(part)
+                # Insert in reverse order to preserve order of array
+                tmpCDS.insert(part,[introns[intron][1],tmpPart[1]])
+                tmpCDS.insert(part,[tmpPart[0],introns[intron][0]])
+                # Now break from the loop back to the exon level loop to goto next exon
+                break
+    return tmpCDS
 
 # Function to retreive boundaries for 3pUTR
 def getPromoter(geneCoords,upstream):
@@ -90,7 +143,7 @@ def getPromoter(geneCoords,upstream):
         return [(geneCoords['txEnd'] + upstream[1]), (geneCoords['txEnd'] + upstream[0])]
 
 # Function to get the length of a 3pUTR
-def len3pUTR(utrCoords):
+def lenICS(utrCoords):
     utrLen = 0
     for part in utrCoords:
         utrLen = utrLen + (part[1] - part[0])
@@ -105,14 +158,15 @@ def uniquify(str1):
             tmp.append(i)
     return tmp
 
-# Merge overlaps and give back sequences [[5pStart,5pEnd], [3pStart,3pEnd]]
+# Merge overlaps and give back sequences [[5pStart,5pEnd], [[3pStart,3pEnd], ... ]]
 # !!! - Assumes that the mergeDem entries come from the same chromosome
-# For now not thinking about introns or exons
-def mergeSeqs(mergeDem,upstream,min3pUTR):
+def mergeSeqs(mergeDem,upstream,min5pUTR,min3pUTR):
     orig = mergeDem[0]
     strand = orig['strand']
-    # Grab the starting promoter and 3' UTR sequences
+    # Grab the starting promoter, 5' UTR, coding and 3' UTR sequences
     promoter = getPromoter(orig,upstream)
+    p5utr = get5pUTR(orig,min5pUTR)
+    cds = getCDS(orig)
     p3utr = get3pUTR(orig,min3pUTR)
     # Now iterate through the rest and merge
     for i in range(1,len(mergeDem)):
@@ -131,25 +185,41 @@ def mergeSeqs(mergeDem,upstream,min3pUTR):
             elif strand=='+':
                 if promoterM[1] < promoter[0]:
                     promoter = promoterM
+        # Merge 5' UTR
+        p5utrM = get5pUTR(mergeMe,min5pUTR)
+        #print p5utrM,'; ',p5utr
+        if not ((p5utrM[0][0]==p5utr[0][0]) and (p5utrM[len(p5utrM)-1][1]==p5utr[len(p5utr)-1][1])):
+            #print "Need merging!"
+            #print p5utrM,p5utr
+            p5utr = mergeICS(p5utr,p5utrM)
+            #print "Merged: ",p3utr
+        # Merge coding sequences
+        cdsM = getCDS(mergeMe)
+        #print cdsM,'; ',cds
+        if not ((cdsM[0][0]==cds[0][0]) and (cdsM[len(cdsM)-1][1]==cds[len(cds)-1][1])):
+            #print "Need merging!"
+            #print cdsM,cds
+            cds = mergeICS(cds,cdsM)
+            #print "Merged: ",cds
         # Merge 3' UTR
         p3utrM = get3pUTR(mergeMe,min3pUTR)
         #print p3utrM,'; ',p3utr
         if not ((p3utrM[0][0]==p3utr[0][0]) and (p3utrM[len(p3utrM)-1][1]==p3utr[len(p3utr)-1][1])):
             #print "Need merging!"
             #print p3utrM,p3utr
-            p3utr = merge3pUTR(p3utr,p3utrM)
+            p3utr = mergeICS(p3utr,p3utrM)
             #print "Merged: ",p3utr
-    return [promoter, p3utr]
+    return [promoter, p5utr, cds, p3utr]
 
-# Merge 3' UTRs
-def merge3pUTR(p3utr,p3utrM):
+# Merge intron containing sequence (5' UTR, CDS and 3'UTR)
+def mergeICS(p3utr,p3utrM):
     # If the start of the new 3' UTR is further down
     if p3utrM[0][0] < p3utr[0][0]:
         # If the other bound is equal the current 3' UTR
         # then just add the new upper bound to the UTR 
         if (p3utrM[0][1] == p3utr[0][1]) or (p3utr[0][0] <= p3utrM[0][1] <= p3utr[0][1]):
             p3utr[0][0] = p3utrM[0][0]
-        # If the first bound don't overlap then maybe a new intron?
+        # If the first bounds don't overlap then maybe a new intron?
         elif p3utrM[0][1] < p3utr[0][0]:
             insertMe = [p3utrM[0]]
             # Now check out the rest of the segments till one overlaps
@@ -200,10 +270,80 @@ if not os.path.exists('gene2refseq.gz'):
     outFile.close()
     ftp1.quit()
 
+
+
 # Start cycling through species need to have the orgId which can be had from NCBI taxonomy website, and the name of the sequence file from UCSC FTP site
-orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus_gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'} }
+# Right now only setup to use where the sequence files is a chromFaMasked.tar.gz in the bigZip directory. Otherwise can't do that species yet.
+# Should be easy to setup up just not ready to screw around with that yet. Probably just read in from chromosomes dir and then convert lowercase to 'N'.
+organismCodes = {}
+# Get organisms three letter codes from miRBase
+ftp1 = FTP('mirbase.org')
+ftp1.login()
+ftp1.cwd('/pub/mirbase/CURRENT')
+outFile = open('organisms.txt','wb')
+ftp1.retrbinary('RETR organisms.txt',outFile.write)
+outFile.close()
+ftp1.quit()
+inFile = open('organisms.txt','r')
+for line in inFile.readlines():
+    splitUp = line.strip().split('\t')
+    organismCodes[splitUp[2]] = { 'miRBase_3lc':splitUp[0] }
+
+inFile.close()
+
+# Get taxonomic ids for all species from NCBI
+ftp1 = FTP('ftp.ncbi.nih.gov')
+ftp1.login()
+ftp1.cwd('/pub/taxonomy')
+outFile = open('taxdump.tar.gz','wb')
+ftp1.retrbinary('RETR taxdump.tar.gz',outFile.write)
+outFile.close()
+ftp1.quit()
+tar = tarfile.open('taxdump.tar.gz')
+tar.extractall()
+tar.close()
+inFile = open('names.dmp','r')
+cnt = 0
+for line in inFile.readlines():
+    splitUp = line.strip().split('\t')
+    if splitUp[2] in organismCodes:
+        organismCodes[splitUp[2]]['NCBI_taxonId'] = splitUp[0]
+        cnt += 1
+
+inFile.close()
+#print cnt
+
+ftp1 = FTP('hgdownload.cse.ucsc.edu')
+ftp1.login()
+ftp1.cwd('/goldenPath/currentGenomes')
+species = ftp1.nlst()
+species.remove('.')
+species.remove('..')
+orgDict = {}
+for organism in species:
+    org1 = organism.replace('_',' ')
+    if org1 in organismCodes:
+        ftp1.cwd('/goldenPath/currentGenomes/'+organism+'/bigZips/')
+        files1 = ftp1.nlst()
+        ftp1.cwd('/goldenPath/currentGenomes/'+organism+'/database/')
+        files2 = ftp1.nlst()
+        if 'chromFaMasked.tar.gz' in files1 and 'refGene.txt.gz' in files2:
+            print org1
+            orgDict[organism] = { 'orgId':int(organismCodes[org1]['NCBI_taxonId']), 'seqFile': 'chromFaMasked.tar.gz' }
+
+#orgDict = { 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'} }
+#orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus_gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'} } #, 'Caenorhabditis_elegans':{'orgId':6239, 'seqFile':'chromFaMasked.tar.gz'}, 'Pan_troglodytes':{'orgId':9598, 'seqFile':'chromFaMasked.tar.gz'}, 'Rattus_norvegicus':{'orgId':10116, 'seqFile':'chromFaMasked.tar.gz'}, 'Pongo_pygmaeus_abelii':{'orgId':9601, 'seqFile':'chromFaMasked.tar.gz'}, 'Canis_familiaris':{'orgId':9615, 'seqFile':'chromFaMasked.tar.gz'}, 'Rhesus_macaque':{'orgId':9544, 'seqFile':'chromFaMasked.tar.gz'}, 'Equus_caballus':{'orgId':9796, 'seqFile':'chromFaMasked.tar.gz'}, 'Monodelphis_domestica':{'orgId':13616, 'seqFile':'chromFaMasked.tar.gz'}, 'Taeniopygia_guttata':{'orgId':59729, 'seqFile':'chromFaMasked.tar.gz'} } #Can add others upon request
+#orgDict = { 'Caenorhabditis_elegans': {'orgId':6239, 'seqFile':'chromFaMasked.tar.gz'} }
+#orgDict = { 'Canis_familiaris':{'orgId':9615, 'seqFile':'chromFaMasked.tar.gz'}, 'Rattus_norvegicus':{'orgId':10116, 'seqFile':'chromFaMasked.tar.gz'} }
+#orgDict = { 'Rattus_norvegicus':{'orgId':10116, 'seqFile':'chromFaMasked.tar.gz'} }
+#orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'} }
+#orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus_gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'}, 'Caenorhabditis_elegans':{'orgId':6239, 'seqFile':'chromFaMasked.tar.gz'}, 'Pan_troglodytes':{'orgId':9598, 'seqFile':'chromFaMasked.tar.gz'}, 'Rattus_norvegicus':{'orgId':10116, 'seqFile':'chromFaMasked.tar.gz'}, 'Pongo_pygmaeus_abelii':{'orgId':9601, 'seqFile':'chromFaMasked.tar.gz'}, 'Canis_familiaris':{'orgId':9615, 'seqFile':'chromFaMasked.tar.gz'}, 'Rhesus_macaque':{'orgId':9544, 'seqFile':'chromFaMasked.tar.gz'}, 'Equus_caballus':{'orgId':9796, 'seqFile':'chromFaMasked.tar.gz'}, 'Monodelphis_domestica':{'orgId':13616, 'seqFile':'chromFaMasked.tar.gz'}, 'Taeniopygia_guttata':{'orgId':59729, 'seqFile':'chromFaMasked.tar.gz'} } #Can add others upon request
 #orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'}, 'Drosophila_melanogaster': {'orgId':7227, 'seqFile':'chromFaMasked.tar.gz'}, 'Gallus gallus': {'orgId':9031, 'seqFile':'chromFaMasked.tar.gz'}, 'Mus_musculus': {'orgId':10090, 'seqFile':'chromFaMasked.tar.gz'}, 'Danio_rerio': {'orgId':7955, 'seqFile':'danRer6.fa.masked.gz'} } # This may be useful when I figure out how to get the sequence from zebrafish and cow
 #orgDict = { 'Homo_sapiens': {'orgId':9606, 'seqFile':'chromFaMasked.tar.gz'} }
+# 'Sus_scrofa':{'orgId':9823, 'seqFile':'chromFaMasked.tar.gz'} - pig doesn't have refGene.txt.gz
+# 'Takifugu_rubripes':{'orgId':31033, 'seqFile':'chromFaMasked.tar.gz'} - doesn't have refGene.txt.gz
+# 'Tetraodon_nigroviridis':{'orgId':99883, 'seqFile':'chromFaMasked.tar.gz'} - doesn't have refGene.txt.gz
+orgData = {}
 for org in orgDict:
     print 'Starting on '+str(org)+'...'
     print '  Downloading genomic data...'
@@ -236,21 +376,34 @@ for org in orgDict:
         if not line:
             break
         splitUp = line.strip().split('\t')
-        if splitUp[13]=='cmpl':
+        if len(splitUp)>=13 and splitUp[13]=='cmpl':
             if not splitUp[1] in refseqCoords:
                 if not splitUp[2] in chrs:
                     chrs.append(splitUp[2])
                 refseqCoords[splitUp[1]] = {'chr':splitUp[2], 'strand':splitUp[3], 'txStart':int(splitUp[4]), 'txEnd':int(splitUp[5]), 'cdsStart':int(splitUp[6]), 'cdsEnd':int(splitUp[7]), 'exonCount':int(splitUp[8]), 'exonStarts':splitUp[9], 'exonEnds':splitUp[10], 'geneName':splitUp[12], 'exonFrames':[int(x) for x in splitUp[15].split(',') if x]}
+        elif not len(splitUp)>=13:
+            if not splitUp[0] in refseqCoords:
+                if not splitUp[1] in chrs:
+                    chrs.append(splitUp[1])
+                # Build the exonFrames determine which 
+                refseqCoords[splitUp[0]] = {'chr':splitUp[1], 'strand':splitUp[2], 'txStart':int(splitUp[3]), 'txEnd':int(splitUp[4]), 'cdsStart':int(splitUp[5]), 'cdsEnd':int(splitUp[6]), 'exonCount':int(splitUp[7]), 'exonStarts':splitUp[8], 'exonEnds':splitUp[9]}
     inFile.close()
 
-    # 1a. Calculate the median 3' UTR length to be used for unknowns
+    # 1a. Calculate the median 5' & 3' UTR length to be used for unknowns
+    p5utrLens = []
     p3utrLens = []
     for refseq in refseqCoords:
-        a1 = len3pUTR(get3pUTR(refseqCoords[refseq],0))
+        a1 = lenICS(get5pUTR(refseqCoords[refseq],0))
+        if not a1==0:
+            p5utrLens.append(a1)
+        a1 = lenICS(get3pUTR(refseqCoords[refseq],0))
         if not a1==0:
             p3utrLens.append(a1)
+    min5pUTR = int(numpy.median(p5utrLens))
     min3pUTR = int(numpy.median(p3utrLens))
-    print '  Median 3\' UTR length =',min3pUTR
+    orgData[org] = { 'min5pUTR': min5pUTR, 'min3pUTR':min3pUTR }
+    print '  Median 5\' UTR length =',min5pUTR,'bp (n =',len(p5utrLens),')'
+    print '  Median 3\' UTR length =',min3pUTR,'bp (n =',len(p3utrLens),')'
 
     # 2. Make a dictionary of EntrezIDs to RefSeqIds
     inFile = gzip.open('gene2refseq.gz','r')
@@ -272,6 +425,8 @@ for org in orgDict:
                     entrezId2refSeq[int(splitUp[1])].append(splitUp[3].split('.')[0])
     inFile.close()
     print ' ',len(entrezId2refSeq),len(refseqCoords)
+    orgData[org]['entrez2refSeq'] = len(entrezId2refSeq)
+    orgData[org]['refseqCoords'] = len(refseqCoords)
     
     print '  Now collapsing and merging RefSeq IDs into Entrez IDs...'
     # 3. Merege multiple refseq IDs corresponding to a single entrezID
@@ -294,12 +449,13 @@ for org in orgDict:
                     tot = 0
                     negOne = 0
                     goodOrBad = 1
-                    for i in refseqCoords[refseq]['exonFrames']:
-                        if i == -1:
-                            negOne += 1
-                        tot += 1
-                    if len(refseqCoords[refseq]['exonFrames'])>=5:
-                        goodOrBad = 1-float(negOne)/float(tot)
+                    if 'exonFrames' in refseqCoords[refseq]:
+                        for i in refseqCoords[refseq]['exonFrames']:
+                            if i == -1:
+                                negOne += 1
+                            tot += 1
+                        if len(refseqCoords[refseq]['exonFrames'])>=5:
+                            goodOrBad = 1-float(negOne)/float(tot)
                     #print goodOrBad
                     if chr=='' and goodOrBad>=0.5:
                         chr = refseqCoords[refseq]['chr']
@@ -313,18 +469,22 @@ for org in orgDict:
                         #print 'Uh oh! Chr and Strand don\'t match! EntrezID = ',entrezId,'; refseqID = ',refseq
                         chrNoMatch += 1
                 if len(mergeDem)>1:
-                    mergedSet[chr][entrezId] = mergeSeqs(mergeDem,promoterSeq,min3pUTR) + [strand]
+                    mergedSet[chr][entrezId] = mergeSeqs(mergeDem,promoterSeq,min5pUTR,min3pUTR) + [strand]
                     gotGenes.append(entrezId)
-                    #print entrez, len(entrez2refseq[entrez]), len3pUTR(mergedSet[chr][entrez][1])
+                    #print entrez, len(entrez2refseq[entrez]), lenICS(mergedSet[chr][entrez][1])
                 else:
                     promoter = getPromoter(refseqCoords[(entrezId2refSeq[entrezId])[0]],promoterSeq)
+                    p5utr = get5pUTR(refseqCoords[(entrezId2refSeq[entrezId])[0]],min5pUTR)
+                    cds = getCDS(refseqCoords[(entrezId2refSeq[entrezId])[0]])
                     p3utr = get3pUTR(refseqCoords[(entrezId2refSeq[entrezId])[0]],min3pUTR)
-                    mergedSet[chr][entrezId] = [promoter,p3utr,strand]
+                    mergedSet[chr][entrezId] = [promoter,p5utr,cds,p3utr,strand]
                     gotGenes.append(entrezId)
             else:
                 promoter = getPromoter(refseqCoords[(entrezId2refSeq[entrezId])[0]],promoterSeq)
+                p5utr = get5pUTR(refseqCoords[(entrezId2refSeq[entrezId])[0]],min5pUTR)
+                cds = getCDS(refseqCoords[(entrezId2refSeq[entrezId])[0]])
                 p3utr = get3pUTR(refseqCoords[(entrezId2refSeq[entrezId])[0]],min3pUTR)
-                mergedSet[chr][entrezId] = [promoter,p3utr,strand]
+                mergedSet[chr][entrezId] = [promoter,p5utr,cds,p3utr,strand]
                 gotGenes.append(entrezId)
     badFile = open(str(org)+'/baddies.txt','w')
     badFile.write('\n'.join(baddies))
@@ -332,12 +492,14 @@ for org in orgDict:
     
     # 4. Get the sizes for the regulatory regions
     mergedSetFile = open(str(org)+'/mergedSetsLengthsRefSeq.csv','w')
-    mergedSetFile.write('EntrezID,Promoter Length,3pUTR Length')
+    mergedSetFile.write('EntrezID,Promoter Length,5pUTR Length,CDS Length,3pUTR Length')
     for chr in mergedSet:
         for entrezId in mergedSet[chr]:
             promoterL = mergedSet[chr][entrezId][0][1] - mergedSet[chr][entrezId][0][0]
-            p3utrL = len3pUTR(mergedSet[chr][entrezId][1])
-            mergedSetFile.write('\n'+str(entrezId)+','+str(promoterL)+','+str(p3utrL))
+            p5utrL = lenICS(mergedSet[chr][entrezId][1])
+            cdsL = lenICS(mergedSet[chr][entrezId][2])
+            p3utrL = lenICS(mergedSet[chr][entrezId][3])
+            mergedSetFile.write('\n'+str(entrezId)+','+str(promoterL)+','+str(p5utrL)+','+str(cdsL)+','+str(p3utrL))
     mergedSetFile.close() 
     
     print '  Extracting the sequence data...'
@@ -349,33 +511,58 @@ for org in orgDict:
 
     # 6. Extract the sequences
     promoterFile = open(str(org)+'/promoterSeqs_'+str(org)+'.csv','w')
+    p5utrFile = open(str(org)+'/p5utrSeqs_'+str(org)+'.csv','w')
+    cdsFile = open(str(org)+'/cdsSeqs_'+str(org)+'.csv','w')
     p3utrFile = open(str(org)+'/p3utrSeqs_'+str(org)+'.csv','w')
     for chr in mergedSet:
-        chrSeqFile = open(str(org)+'/chrs/'+str(chr)+'.fa.masked','r')
-        chrSeqFile.readline()
-        chrSeq = [x.strip() for x in chrSeqFile.readlines()]
+        if os.path.exists(str(org)+'/chrs/'+str(chr)+'.fa.masked'):
+            chrSeqFile = open(str(org)+'/chrs/'+str(chr)+'.fa.masked','r')
+        elif os.path.exists(str(org)+'/chrs/'+str(chr).lstrip('chr').replace('_random','')+'/'+str(chr)+'.fa.masked'):
+                chrSeqFile = open(str(org)+'/chrs/'+str(chr).lstrip('chr').replace('_random','')+'/'+str(chr)+'.fa.masked','r')
+        else:
+            print 'FATAL ERROR!!!! Arghhh',chr,'(',str(chr).lstrip('chr').replace('_random',''),')does not have a seqeunce file!'
+            break
+        chrSeqFile.readline() # Get rid of header
+        chrSeq = [x.strip().upper() for x in chrSeqFile.readlines()]
         chrSeq = ''.join(chrSeq)
         for entrezId in mergedSet[chr]:
             promSeq = chrSeq[(mergedSet[chr][entrezId][0][0]-1):(mergedSet[chr][entrezId][0][1]-1)]
-            p3utrSeq = ''
+            p5utrSeq = ''
             for part in mergedSet[chr][entrezId][1]:
+                p5utrSeq += chrSeq[(part[0]-1):(part[1]-1)]
+            cdsSeq = ''
+            for part in mergedSet[chr][entrezId][2]:
+                cdsSeq += chrSeq[(part[0]-1):(part[1]-1)]
+            p3utrSeq = ''
+            for part in mergedSet[chr][entrezId][3]:
                 p3utrSeq += chrSeq[(part[0]-1):(part[1]-1)]
-            if mergedSet[chr][entrezId][2] == '-':
+            if mergedSet[chr][entrezId][4] == '-':
                 promSeq = reverseComplement(promSeq)
+                p5utrSeq = reverseComplement(p5utrSeq)
+                cdsSeq = reverseComplement(cdsSeq)
                 p3utrSeq = reverseComplement(p3utrSeq)
             promoterFile.write(str(entrezId)+','+str(promSeq)+'\n')
+            p5utrFile.write(str(entrezId)+','+str(p5utrSeq)+'\n')
+            cdsFile.write(str(entrezId)+','+str(cdsSeq)+'\n')
             p3utrFile.write(str(entrezId)+','+str(p3utrSeq)+'\n')
     promoterFile.close()
+    p5utrFile.close()
+    cdsFile.close()
     p3utrFile.close()
 
     # 7. Cleanup the seqeunce data
-    files = os.listdir(str(org)+'/chrs/')
-    for file in files:
-        if file.find('.fa.maksed'):
-            os.remove(str(org)+'/chrs/'+str(file))
+    #files = os.listdir(str(org)+'/chrs/')
+    #for file in files:
+    #    if file.find('.fa.maksed'):
+    #        os.remove(str(org)+'/chrs/'+str(file))
     #errOut = open(str(org)+'/stderr.out','w')
     #rmProc = Popen('rm '+str(org)+'/chrs/*.fa.masked')
     #output = weederProc.communicate()
     #errOut.close()
     print 'Done!\n'
+
+#outFile = open('summary.csv','w')
+#outFile.write('org,min5pUTR (bp),min3pUTR (bp)\n')
+#outFile.write('\n'.join([','.join([org, organismCodes[organism.replace('_',' ')]['NCBI_taxonId'], organismCodes[organism.replace('_',' ')]['miRBase_3lc'], orgData[org]['min5pUTR'], orgData[org]['min3pUTR']]) for org in orgData]))
+#outFile.close()
 
